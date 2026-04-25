@@ -1,0 +1,6 @@
+{
+  "name": "Bengali Order Parser",
+  "description": "An AI-powered tool to parse Bengali order texts into standardized English CSV rows for Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
