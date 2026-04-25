@@ -10,7 +10,7 @@
 
 **An AI-powered tool that parses Bengali e-commerce order texts into structured CSV data — instantly.**
 
-[Live Demo](#) · [Report a Bug](../../issues) · [Request Feature](../../issues)
+[Live Demo](https://github.com/somairhossain/BD-e-commerse-order-parser) · [Report a Bug](https://github.com/somairhossain/BD-e-commerse-order-parser/issues) · [Request Feature](https://github.com/somairhossain/BD-e-commerse-order-parser/issues)
 
 </div>
 
@@ -45,7 +45,7 @@ Manually copying order details into spreadsheets is slow and error-prone. This a
 
 **Example Input (Bengali text):**
 ```
-[4:17 PM, 4/22/2026] [Business Name]. Siddiq:+966 57 295 8753
+[Somair]
 নাম: মোঃ রাকিব হোসেন
 মোবাইল: 01712345678
 ঠিকানা: গ্রাম: চরমুগরিয়া, থানা: কালিহাতী, জেলা: টাঙ্গাইল
@@ -55,7 +55,7 @@ Manually copying order details into spreadsheets is slow and error-prone. This a
 
 **Example Output (structured CSV):**
 ```
-966572958753,Bangladesh,Being Processed,,Md. Rakib Hossain,01712345678,"Charmuguria, Thana: Kalihai, Dist: Tangail",Tangail,Kalihai,60_Pcs_new_wooden_toy_set,,Siddiq,1,1250
+Somair,Bangladesh,Being Processed,,Md. Rakib Hossain,01712345678,"Charmuguria, Thana: Kalihai, Dist: Tangail",Tangail,Kalihai,60_Pcs_new_wooden_toy_set,,Somair,1,1250
 ```
 
 ---
@@ -162,10 +162,10 @@ The parser recognizes **80+ products** across these categories:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/bengali-order-parser.git
+git clone https://github.com/somairhossain/BD-e-commerse-order-parser.git
 
 # 2. Navigate into the project
-cd bengali-order-parser
+cd BD-e-commerse-order-parser
 
 # 3. Install dependencies
 npm install
@@ -205,7 +205,7 @@ git add .
 git commit -m "Initial commit: Bengali Order Parser"
 
 # Create a new repo on github.com, then:
-git remote add origin https://github.com/YOUR_USERNAME/bengali-order-parser.git
+git remote add origin https://github.com/somairhossain/BD-e-commerse-order-parser.git
 git branch -M main
 git push -u origin main
 ```
