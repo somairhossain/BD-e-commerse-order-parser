@@ -1,6 +1,6 @@
 {
-  "name": "Bengali Order Parser",
-  "description": "An AI-powered tool to parse Bengali order texts into standardized English CSV rows for Google Sheets.",
+  "name": "ShopOrder AI Parser",
+  "description": "Smart order parsing tool for Borno Baby Shop and Proyojon.com. Converts Bengali order texts into English CSV rows for Google Sheets.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

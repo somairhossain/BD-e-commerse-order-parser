@@ -1,94 +1,36 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { GoogleGenAI } from "@google/genai";
-import { SYSTEM_PROMPT } from "../constants";
+import { getBornoSystemPrompt, getProyojonSystemPrompt } from "../lib/prompts";
 
-const apiKey = process.env.GEMINI_API_KEY || "";
-const ai = new GoogleGenAI({ apiKey });
+const API_KEY = process.env.GEMINI_API_KEY;
 
-export interface ParsedOrder {
-  orderPerson: string;
-  orderCountry: string;
-  orderStatus: string;
-  orderId: string;
-  name: string;
-  mobileNumber: string;
-  detailAddress: string;
-  district: string;
-  thana: string;
-  orderSet: string;
-  note: string;
-  salesPerson: string;
-  qty: string;
-  total: string;
-  rawCsvRow: string;
+if (!API_KEY) {
+  console.warn("GEMINI_API_KEY is not defined in environment variables.");
 }
 
-export async function parseBengaliOrders(text: string): Promise<ParsedOrder[]> {
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is missing. Please add it to your secrets.");
-  }
+const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
 
-  const prompt = `${SYSTEM_PROMPT}\n\nINPUT TEXT TO PARSE:\n${text}\n\nOUTPUT (CSV ROWS ONLY):`;
+export type ShopType = "borno" | "proyojon";
 
+export async function parseOrder(text: string, shop: ShopType, products: string[]): Promise<string> {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash", // Use a stable current model name or one from the skill
-      contents: prompt,
+      model: "gemini-2.0-flash",
+      contents: text,
+      config: {
+        systemInstruction: shop === "borno" ? getBornoSystemPrompt(products) : getProyojonSystemPrompt(products),
+      },
     });
 
-    const csvContent = response.text || "";
-
-    // Split rows and parse them
-    return csvContent.split('\n').filter(row => row.trim().length > 0).map(row => {
-      const columns = parseCSVRow(row);
-      
-      return {
-        orderPerson: columns[0] || "",
-        orderCountry: columns[1] || "",
-        orderStatus: columns[2] || "",
-        orderId: columns[3] || "",
-        name: columns[4] || "",
-        mobileNumber: columns[5] || "",
-        detailAddress: columns[6] || "",
-        district: columns[7] || "",
-        thana: columns[8] || "",
-        orderSet: columns[9] || "",
-        note: columns[10] || "",
-        salesPerson: columns[11] || "",
-        qty: columns[12] || "",
-        total: columns[13] || "",
-        rawCsvRow: row
-      };
-    });
+    const output = response.text || "";
+    
+    // Sometimes the model might wrap the output in code blocks or include empty lines
+    return output.trim()
+      .split('\n')
+      .map(line => line.replace(/^```csv\n?/, "").replace(/\n?```$/, "").trim())
+      .filter(line => line.length > 0)
+      .join('\n');
   } catch (error) {
-    console.error("Error parsing orders with Gemini:", error);
-    throw error;
+    console.error("Gemini Parsing Error:", error);
+    throw new Error("Failed to parse order text. Please try again.");
   }
-}
-
-/**
- * Simple CSV row parser that handles quoted values
- */
-function parseCSVRow(row: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < row.length; i++) {
-    const char = row[i];
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current.trim());
-  return result;
 }

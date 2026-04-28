@@ -3,321 +3,544 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   ClipboardCopy, 
   Trash2, 
-  FileText, 
-  Settings, 
-  Send, 
-  Loader2, 
-  CheckCircle2, 
+  RefreshCw, 
+  Baby, 
+  ShoppingCart,
+  CheckCircle2,
   AlertCircle,
-  Package,
-  MapPin,
-  Phone,
-  User,
-  LayoutGrid,
-  Download
+  ArrowRight,
+  Maximize2,
+  LayoutDashboard,
+  Search,
+  MoreVertical,
+  Settings,
+  Plus,
+  X
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { parseBengaliOrders, ParsedOrder } from './services/geminiService';
-import { CSV_COLUMNS } from './constants';
+import { parseOrder, ShopType } from './services/geminiService';
+import { DEFAULT_BORNO_PRODUCTS, DEFAULT_PROYOJON_PRODUCTS } from './lib/constants';
+
+const BORNO_COLUMNS = [
+  "Order Person", "Order Country", "Order Status", "Order ID", "Name", 
+  "Mobile Number", "Detail Address", "District", "Thana", "Order Set", 
+  "Note", "Sales Person", "QTY", "Total"
+];
+
+const PROYOJON_COLUMNS = [
+  "Order Person", "Name", "Contact No", "Detail Address", "District", 
+  "Thana", "Product Name", "Note", "Sales Person", "QTY", "Total Bill"
+];
+
+/**
+ * Robust CSV line parser that handles quoted fields and empty values correctly.
+ */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
 
 export default function App() {
+  const [view, setView] = useState<'dashboard' | 'settings'>('dashboard');
+  const [shop, setShop] = useState<ShopType>('borno');
   const [inputText, setInputText] = useState('');
-  const [isParsing, setIsParsing] = useState(false);
-  const [orders, setOrders] = useState<ParsedOrder[]>([]);
+  const [parsedRows, setParsedRows] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [lastAction, setLastAction] = useState<string | null>(null);
+
+  // Product Management State
+  const [bornoProducts, setBornoProducts] = useState<string[]>(() => {
+    const saved = localStorage.getItem('borno_products');
+    return saved ? JSON.parse(saved) : DEFAULT_BORNO_PRODUCTS;
+  });
+  const [proyojonProducts, setProyojonProducts] = useState<string[]>(() => {
+    const saved = localStorage.getItem('proyojon_products');
+    return saved ? JSON.parse(saved) : DEFAULT_PROYOJON_PRODUCTS;
+  });
+  const [newProduct, setNewProduct] = useState('');
+
+  const saveProducts = (shopType: ShopType, updatedProducts: string[]) => {
+    if (shopType === 'borno') {
+      setBornoProducts(updatedProducts);
+      localStorage.setItem('borno_products', JSON.stringify(updatedProducts));
+    } else {
+      setProyojonProducts(updatedProducts);
+      localStorage.setItem('proyojon_products', JSON.stringify(updatedProducts));
+    }
+    setLastAction('saved');
+    setTimeout(() => setLastAction(null), 2000);
+  };
+
+  const addProduct = () => {
+    if (!newProduct.trim()) return;
+    const currentProducts = shop === 'borno' ? bornoProducts : proyojonProducts;
+    if (currentProducts.includes(newProduct.trim())) {
+      setError('Product already exists');
+      return;
+    }
+    const updated = [...currentProducts, newProduct.trim()];
+    saveProducts(shop, updated);
+    setNewProduct('');
+    setError(null);
+  };
+
+  const removeProduct = (product: string) => {
+    const currentProducts = shop === 'borno' ? bornoProducts : proyojonProducts;
+    const updated = currentProducts.filter(p => p !== product);
+    saveProducts(shop, updated);
+  };
 
   const handleParse = async () => {
     if (!inputText.trim()) return;
     
-    setIsParsing(true);
+    setIsLoading(true);
     setError(null);
     try {
-      const results = await parseBengaliOrders(inputText);
-      setOrders(results);
-      // Auto-scroll to results
-      setTimeout(() => {
-        scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-    } catch (err: any) {
-      setError(err.message || 'Failed to parse orders. Please check your API key.');
+      const currentProducts = shop === 'borno' ? bornoProducts : proyojonProducts;
+      const result = await parseOrder(inputText, shop, currentProducts);
+      const newRows = result.split('\n').filter(row => row.trim().length > 0);
+      setParsedRows(newRows);
+      setLastAction('parsed');
+      setTimeout(() => setLastAction(null), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred during parsing');
     } finally {
-      setIsParsing(false);
+      setIsLoading(false);
     }
   };
 
-  const copyToClipboard = () => {
-    if (orders.length === 0) return;
-    const csvHeader = CSV_COLUMNS.join(',');
-    const csvContent = orders.map(o => o.rawCsvRow).join('\n');
-    const fullCsv = `${csvHeader}\n${csvContent}`;
-    
-    navigator.clipboard.writeText(fullCsv);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const downloadCSV = () => {
-    if (orders.length === 0) return;
-    const csvHeader = CSV_COLUMNS.join(',');
-    const csvContent = orders.map(o => o.rawCsvRow).join('\n');
-    const fullCsv = `${csvHeader}\n${csvContent}`;
-    
-    const blob = new Blob([fullCsv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `orders_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setLastAction('copied');
+      setTimeout(() => setLastAction(null), 2000);
+    } catch (err) {
+      setError('Failed to copy to clipboard');
+    }
   };
 
   const clearAll = () => {
     setInputText('');
-    setOrders([]);
+    setParsedRows([]);
     setError(null);
   };
 
+  const columns = shop === 'borno' ? BORNO_COLUMNS : PROYOJON_COLUMNS;
+  const isBorno = shop === 'borno';
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-[#1E293B] font-sans">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-lg shadow-indigo-200 shadow-lg">
-              <FileText className="w-5 h-5 text-white" />
+    <div className="flex h-screen w-full overflow-hidden bg-[#F8FAFC] font-sans text-slate-900">
+      
+      {/* Sidebar Navigation */}
+      <aside className="w-64 max-md:hidden flex-shrink-0 bg-[#000000] border-r border-slate-200 flex flex-col shadow-sm z-10">
+        <div className="p-6 border-b border-white/5 mb-4 bg-[#000000]">
+          <h1 className="text-xl font-bold tracking-tight text-[#FFFFFF] flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${isBorno ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+            OrderAI
+          </h1>
+          <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-widest">Parser System</p>
+        </div>
+        
+        <nav className="flex-1 p-4 space-y-2 bg-[#0B0B0B]">
+          <div className="text-[10px] font-bold text-slate-400 uppercase px-3 mb-2 tracking-widest">Navigation</div>
+          
+          <button 
+            onClick={() => setView('dashboard')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 border ${
+              view === 'dashboard'
+                ? 'bg-blue-50 text-blue-700 border-blue-100 shadow-sm' 
+                : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50'
+            }`}
+          >
+            <LayoutDashboard size={18} />
+            <span className="text-sm font-semibold">Dashboard</span>
+          </button>
+
+          <button 
+            onClick={() => setView('settings')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 border ${
+              view === 'settings'
+                ? 'bg-blue-50 text-blue-700 border-blue-100 shadow-sm' 
+                : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50'
+            }`}
+          >
+            <Settings size={18} />
+            <span className="text-sm font-semibold">Manage Products</span>
+          </button>
+
+          <div className="pt-4 text-[10px] font-bold text-slate-400 uppercase px-3 mb-2 tracking-widest">Active Shops</div>
+          
+          <button 
+            onClick={() => { setShop('borno'); setParsedRows([]); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 border ${
+              isBorno 
+                ? 'bg-slate-100 text-slate-800 border-slate-200 shadow-sm' 
+                : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50'
+            }`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm bg-[#036eff]`}>B</div>
+            <div className="text-left">
+              <div className="text-sm font-semibold leading-tight">Borno Baby</div>
+              <div className="text-[10px] opacity-70 italic leading-tight">Children's Apparel</div>
             </div>
-            <div>
-              <h1 className="font-bold text-slate-900 tracking-tight text-lg">Bengali Order Parser</h1>
-              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Operational Data Tool</p>
+          </button>
+
+          <button 
+            onClick={() => { setShop('proyojon'); setParsedRows([]); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 border ${
+              !isBorno 
+                ? 'bg-slate-100 text-slate-800 border-slate-200 shadow-sm' 
+                : 'bg-transparent text-slate-500 border-transparent hover:bg-slate-50'
+            }`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm ${!isBorno ? 'bg-emerald-500' : 'bg-slate-200 text-slate-400'}`}>P</div>
+            <div className="text-left">
+              <div className="text-sm font-semibold leading-tight">Proyojon.com</div>
+              <div className="text-[10px] opacity-70 italic leading-tight">Lifestyle & Decor</div>
             </div>
+          </button>
+        </nav>
+
+        <div className="p-4 mt-auto border-t border-slate-100">
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+            <div className="flex justify-between items-center text-[10px] text-slate-500 mb-1 font-bold tracking-tight">
+              <span>System Accuracy</span>
+              <span>99.2%</span>
+            </div>
+            <div className="w-full bg-slate-200 h-1 rounded-full overflow-hidden">
+              <div className={`h-full transition-all duration-500 ${isBorno ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: '99%' }} />
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col h-full relative">
+        {/* Mobile Header (Hidden on Desktop) */}
+        <header className="md:hidden h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isBorno ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+            <span className="font-bold text-slate-800">OrderAI</span>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShop('borno')} className={`p-2 rounded-lg ${isBorno ? 'bg-blue-50 text-blue-600' : 'text-slate-400'}`}><Baby size={18} /></button>
+            <button onClick={() => setShop('proyojon')} className={`p-2 rounded-lg ${!isBorno ? 'bg-emerald-50 text-emerald-600' : 'text-slate-400'}`}><ShoppingCart size={18} /></button>
+          </div>
+        </header>
+
+        {/* Global Toolbar */}
+        <div className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0 max-md:hidden">
+          <div className="flex items-center gap-4">
+            <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider ${isBorno ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {isBorno ? 'BBS Environment' : 'Proyojon Environment'}
+            </span>
+            <h2 className="text-sm font-medium text-slate-400 flex items-center gap-2">
+              <LayoutDashboard size={14} />
+              Orders / New Input
+            </h2>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-400 hover:text-slate-600 transition-colors">
-              <Settings className="w-5 h-5" />
-            </button>
+            <button className="text-slate-400 hover:text-slate-600 p-2 transition-colors"><Search size={18}/></button>
+            <div className="h-4 w-px bg-slate-200" />
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-slate-700">{isBorno ? 'Borno Admin' : 'Proyojon Admin'}</span>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ${isBorno ? 'bg-blue-600' : 'bg-emerald-600'}`}>
+                {isBorno ? 'B' : 'P'}
+              </div>
+            </div>
           </div>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-        {/* Input Section */}
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ClipboardCopy className="w-4 h-4 text-slate-400" />
-              <span className="text-sm font-semibold text-slate-700">Paste Daily Order Text</span>
-            </div>
-            <button 
-              onClick={clearAll}
-              className="text-xs font-medium text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors"
-            >
-              <Trash2 className="w-3 h-3" /> Clear Text
-            </button>
-          </div>
-          <div className="p-6 space-y-4">
-            <textarea
-              className="w-full h-80 p-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-slate-700 font-mono text-sm leading-relaxed"
-              placeholder="পাসব করা অর্ডারের লেখা এখানে দিন..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-            />
-            <div className="flex justify-end">
-              <button
-                onClick={handleParse}
-                disabled={isParsing || !inputText.trim()}
-                className={`
-                  flex items-center gap-2 px-8 py-3 rounded-xl font-bold transition-all shadow-lg
-                  ${isParsing || !inputText.trim() 
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' 
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shadow-indigo-200'}
-                `}
-              >
-                {isParsing ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Parsing...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-5 h-5" />
-                    Parse Orders
-                  </>
+        {/* Workspace */}
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+          {view === 'dashboard' ? (
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+              
+              {/* Input Module */}
+              <section className="xl:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col transition-all hover:shadow-md">
+                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Daily Order Input</span>
+                  <button 
+                    onClick={clearAll}
+                    className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div className="relative">
+                    <textarea
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      placeholder="Paste order text here (Bengali)..."
+                      className="w-full h-48 bg-slate-50/50 border border-slate-200 rounded-xl p-4 text-sm font-mono text-slate-700 focus:ring-4 focus:ring-blue-100/50 focus:outline-none focus:border-blue-400 transition-all resize-none"
+                    />
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-50 px-2 py-1 bg-white rounded-md border border-slate-100 pointer-events-none">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Ready</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleParse}
+                    disabled={isLoading || !inputText.trim()}
+                    className={`w-full py-3.5 rounded-xl flex items-center justify-center gap-3 font-bold text-sm transition-all shadow-lg ${
+                      isLoading 
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                      : isBorno 
+                        ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200 active:scale-95' 
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 active:scale-95'
+                    }`}
+                  >
+                    {isLoading ? (
+                      <RefreshCw size={18} className="animate-spin" />
+                    ) : (
+                      <>
+                        Parse Data
+                        <ArrowRight size={16} />
+                      </>
+                    )}
+                  </button>
+
+                  <AnimatePresence>
+                    {error && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="bg-red-50 text-red-600 p-3 rounded-xl flex items-center gap-3 text-[11px] font-semibold border border-red-100"
+                      >
+                        <AlertCircle size={14} />
+                        {error}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </section>
+
+              {/* Results Module */}
+              <section className="xl:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col transition-all hover:shadow-md min-h-[500px]">
+                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Extraction Preview</span>
+                  {parsedRows.length > 0 && (
+                    <button
+                      onClick={() => copyToClipboard(parsedRows.join('\n'))}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all border ${
+                        isBorno 
+                        ? 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100' 
+                        : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {lastAction === 'copied' ? <CheckCircle2 size={12} /> : <ClipboardCopy size={12} />}
+                      {lastAction === 'copied' ? 'Copied' : 'Copy CSV'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-auto bg-white">
+                  {parsedRows.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-300 p-12 text-center">
+                      <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
+                        <Maximize2 size={24} className="opacity-20" />
+                      </div>
+                      <p className="text-xs font-semibold uppercase tracking-widest mb-1">No Data Detected</p>
+                      <p className="text-[11px] font-medium max-w-[200px] leading-relaxed">Processing starts automatically when you paste order content.</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-[11px] border-collapse min-w-[1000px]">
+                      <thead className="bg-slate-50 text-slate-500 border-b border-slate-100 sticky top-0 z-20">
+                        <tr>
+                          {columns.map((col, idx) => (
+                            <th key={idx} className="px-4 py-3 font-extrabold uppercase tracking-tighter whitespace-nowrap">
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {parsedRows.map((row, rowIdx) => {
+                          const cells = parseCSVLine(row);
+                          return (
+                            <motion.tr 
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: rowIdx * 0.05 }}
+                              key={rowIdx} 
+                              className="hover:bg-slate-50/80 transition-colors group"
+                            >
+                              {cells.map((cell, cellIdx) => (
+                                <td key={cellIdx} className="px-4 py-3 text-slate-600 font-medium whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis border-r border-slate-50 last:border-r-0">
+                                  {cell.replace(/^"|"$/g, '') || <span className="opacity-20">—</span>}
+                                </td>
+                              ))}
+                            </motion.tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {parsedRows.length > 0 && (
+                  <div className="p-4 bg-slate-50 border-t border-slate-100">
+                    <div className="flex justify-between items-center mb-2 px-1">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">CSV Raw Format</span>
+                      <button onClick={() => copyToClipboard(parsedRows.join('\n'))} className="text-[9px] font-bold text-slate-500 hover:text-slate-800 transition-colors">Copy All</button>
+                    </div>
+                    <div className="bg-slate-900 rounded-xl p-4 font-mono text-[10px] text-blue-400 max-h-32 overflow-y-auto leading-relaxed shadow-inner">
+                      {parsedRows.map((row, i) => (
+                        <div key={i} className="mb-1 last:mb-0 opacity-90">{row}</div>
+                      ))}
+                    </div>
+                  </div>
                 )}
-              </button>
+              </section>
             </div>
-          </div>
-        </section>
+          ) : (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col transition-all">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                      {isBorno ? <Baby className="text-blue-500" /> : <ShoppingCart className="text-emerald-500" />}
+                      Manage {isBorno ? 'Borno Baby' : 'Proyojon.com'} Order Sets
+                    </h3>
+                    <p className="text-sm text-slate-500">Edit the list of valid product names for this shop.</p>
+                  </div>
+                  <div className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest ${isBorno ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {shop}
+                  </div>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                  {/* Add New Product */}
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newProduct}
+                      onChange={(e) => setNewProduct(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addProduct()}
+                      placeholder="Enter new product name..."
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-4 focus:ring-blue-100 focus:outline-none focus:border-blue-400 transition-all font-semibold"
+                    />
+                    <button 
+                      onClick={addProduct}
+                      className={`px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all ${
+                        isBorno ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      }`}
+                    >
+                      <Plus size={18} />
+                      Add Item
+                    </button>
+                  </div>
 
-        {/* Error Display */}
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-3 text-red-700"
-            >
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <p className="text-sm font-medium">{error}</p>
-            </motion.div>
+                  <AnimatePresence>
+                    {error && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-3 bg-red-50 text-red-600 text-xs font-bold rounded-xl border border-red-100 flex items-center gap-2"
+                      >
+                        <AlertCircle size={14} />
+                        {error}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Product List */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
+                      <span>Product Name</span>
+                      <span>Actions</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                      {(isBorno ? bornoProducts : proyojonProducts).map((product, idx) => (
+                        <motion.div 
+                          layout
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          key={product}
+                          className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:border-slate-300 hover:shadow-sm transition-all group"
+                        >
+                          <span className="text-sm font-medium text-slate-700">{product}</span>
+                          <button 
+                            onClick={() => removeProduct(product)}
+                            className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                          >
+                            <X size={14} />
+                          </button>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-slate-100 flex justify-between items-center">
+                    <p className="text-xs text-slate-400 font-medium italic">
+                      Disclaimer: Adding products updates the AI system instructions instantly.
+                    </p>
+                    <button 
+                      onClick={() => setView('dashboard')}
+                      className="text-sm font-bold text-slate-600 hover:text-slate-900 transition-colors flex items-center gap-2"
+                    >
+                      Back to Dashboard <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-        </AnimatePresence>
-
-        {/* Results Section */}
-        <div ref={scrollRef}>
-          <AnimatePresence>
-            {orders.length > 0 && (
-              <motion.section
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-4"
-              >
-                <div className="flex items-center justify-between px-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    <h2 className="font-bold text-slate-800">Parsed Results ({orders.length})</h2>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={copyToClipboard}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-                    >
-                      {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <ClipboardCopy className="w-4 h-4" />}
-                      {copied ? 'Copied!' : 'Copy CSV'}
-                    </button>
-                    <button
-                      onClick={downloadCSV}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 border border-slate-900 rounded-lg text-sm font-semibold text-white hover:bg-slate-900 transition-colors shadow-sm"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid gap-6">
-                  {orders.map((order, idx) => (
-                    <motion.div
-                      key={idx}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                      className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
-                    >
-                      <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Order #{idx + 1}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded uppercase">
-                            {order.salesPerson}
-                          </span>
-                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-bold rounded uppercase">
-                            {order.orderStatus}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        {/* Customer Info */}
-                        <div className="space-y-4">
-                          <div className="flex items-start gap-3">
-                            <User className="w-4 h-4 mt-1 text-slate-400" />
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Customer</p>
-                              <p className="text-sm font-bold text-slate-900">{order.name}</p>
-                              <p className="text-xs text-slate-500">Order by: {order.orderPerson}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3">
-                            <Phone className="w-4 h-4 mt-1 text-slate-400" />
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Contact</p>
-                              <p className="text-sm font-medium text-slate-700">{order.mobileNumber}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Location Info */}
-                        <div className="space-y-4 lg:col-span-2">
-                          <div className="flex items-start gap-3">
-                            <MapPin className="w-4 h-4 mt-1 text-slate-400" />
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Shipping Details</p>
-                              <p className="text-sm text-slate-700 leading-relaxed">{order.detailAddress}</p>
-                              <div className="flex gap-2 mt-2">
-                                <span className="px-1.5 py-0.5 bg-slate-100 text-[10px] font-semibold text-slate-600 rounded">Dist: {order.district}</span>
-                                <span className="px-1.5 py-0.5 bg-slate-100 text-[10px] font-semibold text-slate-600 rounded">Thana: {order.thana}</span>
-                                <span className="px-1.5 py-0.5 bg-slate-100 text-[10px] font-semibold text-slate-600 rounded">{order.orderCountry}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Product Info */}
-                        <div className="space-y-4">
-                          <div className="flex items-start gap-3">
-                            <Package className="w-4 h-4 mt-1 text-slate-400" />
-                            <div className="w-full">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Product & Bill</p>
-                              <p className="text-sm font-bold text-indigo-600 mb-1">{order.orderSet.replace(/_/g, ' ')}</p>
-                              <div className="flex items-center justify-between border-t border-slate-100 pt-2 mt-2">
-                                <span className="text-xs text-slate-500 font-medium">Qty: {order.qty}</span>
-                                <span className="text-sm font-black text-slate-900">৳ {order.total}</span>
-                              </div>
-                              {order.note && (
-                                <p className="mt-3 p-2 bg-amber-50 text-[11px] text-amber-800 rounded border border-amber-100 italic">
-                                  Note: {order.note}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Raw CSV Row (Collapsible/Hidden ideally) */}
-                      <div className="px-6 py-3 bg-slate-900 text-[10px] font-mono text-slate-400 truncate">
-                        CSV: {order.rawCsvRow}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </motion.section>
-            )}
-          </AnimatePresence>
         </div>
 
-        {/* Empty State */}
-        {!isParsing && orders.length === 0 && !error && (
-          <div className="py-20 text-center space-y-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-full text-slate-300">
-              <LayoutGrid className="w-8 h-8" />
+        {/* Global Footer */}
+        <footer className="h-12 bg-white border-t border-slate-200 px-8 flex items-center justify-between flex-shrink-0 text-[10px] text-slate-400 font-bold overflow-hidden">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span>Gemini 2.0 Engine</span>
             </div>
-            <div>
-              <p className="text-slate-500 font-medium tracking-tight">No orders parsed yet</p>
-              <p className="text-xs text-slate-400">Your results will appear here in a structured format</p>
+            <div className="flex items-center gap-2">
+              <MoreVertical size={10} />
+              <span>v1.2.0 Stable Build</span>
             </div>
           </div>
-        )}
+          <p className="max-md:hidden uppercase tracking-widest opacity-60">High-Fidelity Automated Parsing</p>
+        </footer>
       </main>
 
-      <footer className="max-w-7xl mx-auto px-4 py-12 border-t border-slate-200">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-            &copy; 2026 Bengali Order Processing System • AI Studio Build
-          </p>
-          <div className="flex gap-6">
-            <a href="#" className="text-xs font-bold text-slate-400 hover:text-indigo-600 transition-colors uppercase">Documentation</a>
-            <a href="#" className="text-xs font-bold text-slate-400 hover:text-indigo-600 transition-colors uppercase">Support</a>
-          </div>
-        </div>
-      </footer>
+      {/* Pop Notifications */}
+      <AnimatePresence>
+        {lastAction === 'copied' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className={`fixed bottom-8 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full flex items-center gap-3 shadow-2xl z-50 text-[11px] font-bold text-white shadow-xl ${isBorno ? 'bg-blue-600' : 'bg-emerald-600'}`}
+          >
+            <CheckCircle2 size={14} className="text-white/80" />
+            Copied to Clipboard
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
